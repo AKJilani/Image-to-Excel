@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Directory to Excel</title>
+</head>
+<body>
+    <h1>Select Directory to Scan for Images</h1>
+    <form id="imageForm" method="POST" action="/process_directory">
+        <label for="directory">Directory Path:</label>
+        <input type="text" id="directory" name="directory" placeholder="C:/your_directory_here" required>
+        <br><br>
+        <button type="submit">Generate Excel</button>
+    </form>
+
+    <div id="status"></div>
+
+    <script>
+        // Simple script to show a loading message while processing
+        const form = document.getElementById('imageForm');
+        form.addEventListener('submit', function () {
+            document.getElementById('status').innerText = "Processing... Please wait.";
+        });
+    </script>
+</body>
+</html>
