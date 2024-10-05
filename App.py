@@ -2,6 +2,7 @@ import os
 import pandas as pd
 from flask import Flask, request, send_file, render_template
 from werkzeug.utils import secure_filename
+import io
 
 app = Flask(__name__)
 
@@ -61,20 +62,17 @@ def process_directory():
     # Create a DataFrame for folder counts
     df_counts = pd.DataFrame(count_data, columns=['Folder Name', 'Image Count'])
 
-    # Specify output Excel file path
-    output_excel = os.path.join(directory, "image_file_structure.xlsx")
-
-    # Write both DataFrames to separate sheets in the Excel file
-    with pd.ExcelWriter(output_excel) as writer:
+    # Save the Excel file in memory using BytesIO
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df_images.to_excel(writer, sheet_name='Image Data', index=False)  # Sheet 1: Detailed Image Data
         df_counts.to_excel(writer, sheet_name='Folder Summary', index=False)  # Sheet 2: Folder Summary with Image Counts
 
-    # Provide the generated Excel file for download
-    return send_file(output_excel, as_attachment=True)
+    # Rewind the buffer
+    output.seek(0)
 
-
-
+    # Send the Excel file as a download
+    return send_file(output, as_attachment=True, download_name='image_file_structure.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=5000, debug=False)
-
+    app.run(host='127.0.0.1', port=5000, debug=True)
