@@ -29,6 +29,7 @@ def get_image_data(directory):
 def index():
     return render_template('index.html')
 
+
 @app.route('/process_directory', methods=['POST'])
 def process_directory():
     # Get the directory path from the form
@@ -56,11 +57,14 @@ def process_directory():
         folder_path = tuple(row[:-1])  # Get the folder path (all but the last element)
         folder_counts[folder_path] = folder_counts.get(folder_path, 0) + 1
 
-    # Prepare data for the counts DataFrame
-    count_data = [(os.path.sep.join(folder), count) for folder, count in folder_counts.items()]
+    # Prepare data for the counts DataFrame with rearranged columns
+    count_data = [
+        (os.path.join(directory, *folder), os.path.sep.join(folder), count)  # Rearranged: Full Path, Folder Name, Image Count
+        for folder, count in folder_counts.items()
+    ]
 
-    # Create a DataFrame for folder counts
-    df_counts = pd.DataFrame(count_data, columns=['Folder Name', 'Image Count'])
+    # Create a DataFrame for folder counts with updated column order
+    df_counts = pd.DataFrame(count_data, columns=['Full Path', 'Folder Name', 'Image Count'])  # Column order changed
 
     # Save the Excel file in memory using BytesIO
     output = io.BytesIO()
