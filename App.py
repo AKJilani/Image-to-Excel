@@ -1,13 +1,15 @@
 import os
 import pandas as pd
 from flask import Flask, request, send_file, render_template
-from werkzeug.utils import secure_filename
 import io
 
 app = Flask(__name__)
 
 # Supported image formats
 image_formats = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.j2k', '.jp2')
+
+# Maximum rows per Excel sheet (Excel's limit is 1,048,576 rows)
+MAX_ROWS_PER_SHEET = 1048576
 
 def get_image_data(directory):
     image_data = []
@@ -69,14 +71,28 @@ def process_directory():
     # Save the Excel file in memory using BytesIO
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df_images.to_excel(writer, sheet_name='Image Data', index=False)  # Sheet 1: Detailed Image Data
-        df_counts.to_excel(writer, sheet_name='Folder Summary', index=False)  # Sheet 2: Folder Summary with Image Counts
+        # Handle large data by writing in chunks to multiple sheets if necessary
+        total_rows = df_images.shape[0]
+        sheet_num = 1
+        for start_row in range(0, total_rows, MAX_ROWS_PER_SHEET):
+            # Define the end row for the current sheet
+            end_row = min(start_row + MAX_ROWS_PER_SHEET, total_rows)
+            # Extract the chunk of data
+            df_chunk = df_images.iloc[start_row:end_row]
+            # Write chunk to a new sheet (e.g., 'Image Data 1', 'Image Data 2', ...)
+            sheet_name = f'Image Data {sheet_num}'
+            df_chunk.to_excel(writer, sheet_name=sheet_name, index=False)
+            sheet_num += 1
+
+        # Write the Folder Summary to a separate sheet
+        df_counts.to_excel(writer, sheet_name='Folder Summary', index=False)
 
     # Rewind the buffer
     output.seek(0)
 
     # Send the Excel file as a download
     return send_file(output, as_attachment=True, download_name='image_file_structure.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5000, debug=True)
