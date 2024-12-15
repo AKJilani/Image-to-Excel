@@ -1,17 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Image Directory to Excel</title>
 </head>
+
 <body>
     <h1>Select Directory to Scan for Images</h1>
     <form id="imageForm" method="POST" action="/process_directory">
         <label for="directory">Directory Path:</label>
         <input type="text" id="directory" name="directory" placeholder="C:/your_directory_here" required>
         <br><br>
-        <button type="submit">Generate Excel</button>
+        <button type="submit" name="action" value="full">Generate Full Excel</button>
+        <button type="submit" name="action" value="summary">Folder Summary Only</button>
+        <button type="submit" name="action" value="summary_with_size">Folder Summary with Size</button>
     </form>
 
     <div id="status"></div>
@@ -24,4 +28,5 @@
         });
     </script>
 </body>
+
 </html>

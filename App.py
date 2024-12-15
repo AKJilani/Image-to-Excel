@@ -2,6 +2,7 @@ import os
 import pandas as pd
 from flask import Flask, request, send_file, render_template
 import io
+from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__)
 
@@ -13,19 +14,34 @@ MAX_ROWS_PER_SHEET = 1048576
 
 def get_image_data(directory):
     image_data = []
-
-    # Walk through the directory and its subdirectories
     for root, dirs, files in os.walk(directory):
-        # Split the root path into parts (folders)
         folder_path = os.path.relpath(root, directory).split(os.sep)
-        
         for file_name in files:
             if file_name.lower().endswith(image_formats):
-                # Create a row with folder path split into columns, and image file name
                 row = folder_path + [file_name]
                 image_data.append(row)
-    
     return image_data
+
+def get_folder_size_parallel(folder_path):
+    """Calculate folder size using multithreading for faster performance."""
+    total_size = 0
+
+    def calculate_size(path):
+        try:
+            if os.path.isfile(path):
+                return os.path.getsize(path)
+            elif os.path.isdir(path):
+                return get_folder_size_parallel(path)
+        except (PermissionError, FileNotFoundError):
+            return 0
+        return 0
+
+    with ThreadPoolExecutor() as executor:
+        futures = [executor.submit(calculate_size, entry.path) for entry in os.scandir(folder_path)]
+        total_size += sum(future.result() for future in futures)
+
+    return total_size
+
 
 @app.route('/', methods=['GET'])
 def index():
@@ -34,63 +50,62 @@ def index():
 
 @app.route('/process_directory', methods=['POST'])
 def process_directory():
-    # Get the directory path from the form
     directory = request.form['directory']
+    action = request.form['action']  # 'full', 'summary', or 'summary_with_size'
 
     if not os.path.isdir(directory):
         return "Invalid directory. Please check the path.", 400
 
-    # Get image data (folder hierarchy + image files)
     image_data = get_image_data(directory)
+    image_data.sort(key=lambda x: [str(part).lower() for part in x])
 
-    # Sort the image_data in ascending order
-    image_data.sort(key=lambda x: [str(part).lower() for part in x])  # Sort based on folder/file names, case-insensitive
+    if action == 'full':
+        max_depth = max(len(row) for row in image_data)
+        columns = [f'Column{i+1}' for i in range(max_depth)]
+        df_images = pd.DataFrame(image_data, columns=columns)
 
-    # Create DataFrame for image data and add columns dynamically based on folder depth
-    max_depth = max(len(row) for row in image_data)  # Find the maximum folder depth
-    columns = [f'Column{i+1}' for i in range(max_depth)]  # Create column names like Column1, Column2...
-
-    df_images = pd.DataFrame(image_data, columns=columns)
-
-    # Create a dictionary to count images in each folder
     folder_counts = {}
+    folder_sizes = {}
 
     for row in image_data:
-        folder_path = tuple(row[:-1])  # Get the folder path (all but the last element)
+        folder_path = tuple(row[:-1])
+        folder_full_path = os.path.join(directory, *folder_path)
         folder_counts[folder_path] = folder_counts.get(folder_path, 0) + 1
 
-    # Prepare data for the counts DataFrame with rearranged columns
-    count_data = [
-        (os.path.join(directory, *folder), os.path.sep.join(folder), count)  # Rearranged: Full Path, Folder Name, Image Count
-        for folder, count in folder_counts.items()
-    ]
+        if action == 'summary_with_size' and folder_path not in folder_sizes:
+            folder_sizes[folder_path] = get_folder_size_parallel(folder_full_path)
 
-    # Create a DataFrame for folder counts with updated column order
-    df_counts = pd.DataFrame(count_data, columns=['Full Path', 'Folder Name', 'Image Count'])  # Column order changed
+    count_data = []
+    for folder, count in folder_counts.items():
+        folder_summary = [
+            os.path.join(directory, *folder),
+            os.path.sep.join(folder),
+            count
+        ]
+        if action == 'summary_with_size':
+            folder_summary.append(round(folder_sizes.get(folder, 0) / (1024 ** 3), 2))  # Size in GB
+        count_data.append(folder_summary)
 
-    # Save the Excel file in memory using BytesIO
+    columns = ['Full Path', 'Folder Name', 'Image Count']
+    if action == 'summary_with_size':
+        columns.append('Folder Size (GB)')
+
+    df_counts = pd.DataFrame(count_data, columns=columns)
+
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # Handle large data by writing in chunks to multiple sheets if necessary
-        total_rows = df_images.shape[0]
-        sheet_num = 1
-        for start_row in range(0, total_rows, MAX_ROWS_PER_SHEET):
-            # Define the end row for the current sheet
-            end_row = min(start_row + MAX_ROWS_PER_SHEET, total_rows)
-            # Extract the chunk of data
-            df_chunk = df_images.iloc[start_row:end_row]
-            # Write chunk to a new sheet (e.g., 'Image Data 1', 'Image Data 2', ...)
-            sheet_name = f'Image Data {sheet_num}'
-            df_chunk.to_excel(writer, sheet_name=sheet_name, index=False)
-            sheet_num += 1
+        if action == 'full':
+            total_rows = df_images.shape[0]
+            sheet_num = 1
+            for start_row in range(0, total_rows, MAX_ROWS_PER_SHEET):
+                end_row = min(start_row + MAX_ROWS_PER_SHEET, total_rows)
+                df_chunk = df_images.iloc[start_row:end_row]
+                df_chunk.to_excel(writer, sheet_name=f'Image Data {sheet_num}', index=False)
+                sheet_num += 1
 
-        # Write the Folder Summary to a separate sheet
         df_counts.to_excel(writer, sheet_name='Folder Summary', index=False)
 
-    # Rewind the buffer
     output.seek(0)
-
-    # Send the Excel file as a download
     return send_file(output, as_attachment=True, download_name='image_file_structure.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
